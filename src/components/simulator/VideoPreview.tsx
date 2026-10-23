@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, MonitorPlay, ScanEye } from "lucide-react";
 import { EspOverlay } from "./EspOverlay";
 import { FovCircle } from "./FovCircle";
-import { modelStore, captureStore, settingsStore, useStore } from "@/lib/simulator/store";
+import { modelStore, captureStore, settingsStore, sourceStore, useStore } from "@/lib/simulator/store";
 import type { DetectionEngine } from "@/lib/simulator/engine";
 
 /** Rendered video area inside the preview container, in CSS pixels. */
@@ -35,6 +35,7 @@ export function VideoPreview({ videoRef, engine }: VideoPreviewProps) {
   const settings = useStore(settingsStore);
   const modelState = useStore(modelStore);
   const captureStatus = useStore(captureStore);
+  const sourceKind = useStore(sourceStore);
 
   const recompute = useCallback(() => {
     const container = containerRef.current;
@@ -91,6 +92,8 @@ export function VideoPreview({ videoRef, engine }: VideoPreviewProps) {
         className="absolute inset-0 h-full w-full object-contain"
         playsInline
         muted
+        // Native transport controls only for local video files.
+        controls={sourceKind === "file"}
       />
       <FovCircle viewRect={viewRect} />
       <EspOverlay engine={engine} viewRect={viewRect} />

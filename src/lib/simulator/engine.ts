@@ -7,7 +7,7 @@ import {
 } from "./store";
 import { ObjectTracker } from "./tracker";
 import type { EngineStatus, RawDetection, Track } from "./types";
-import { resolveModelUrl } from "./types";
+import { DETECTION_INPUT_SIZE, resolveModelUrl } from "./types";
 
 /** Only COCO "person" is tracked — an honest proxy for enemy-like figures. */
 const PERSON_CLASS = "person";
@@ -177,7 +177,7 @@ export class DetectionEngine {
     const persons = msg.detections.filter((d) => d.className === PERSON_CLASS);
     const settings = settingsStore.get();
     const fovMeta = this.fovMeta(settings.fovRadius);
-    const tracks = this.tracker.update(persons);
+    const tracks = this.tracker.update(persons, now);
     for (const t of tracks) t.insideFov = this.isInsideFov(t, fovMeta);
     this.latestTracks = tracks;
     this.emitTrackEvents(tracks);
@@ -216,7 +216,14 @@ export class DetectionEngine {
 
     const sentAt = performance.now();
     this.lastSentAt = sentAt;
-    createImageBitmap(video)
+    // Pre-scale on capture so the worker skips downscaling a full-res frame.
+    // Rounded dims introduce ≤0.5 px error, which the letterbox math absorbs.
+    const vw = video.videoWidth || 16;
+    const vh = video.videoHeight || 9;
+    const scale = Math.min(DETECTION_INPUT_SIZE / vw, DETECTION_INPUT_SIZE / vh);
+    const resizeWidth = Math.max(2, Math.round(vw * scale));
+    const resizeHeight = Math.max(2, Math.round(vh * scale));
+    createImageBitmap(video, { resizeWidth, resizeHeight, resizeQuality: "low" })
       .then((bitmap) => {
         this.busy = true;
         this.lastProcessAt = performance.now();
@@ -260,7 +267,7 @@ export class DetectionEngine {
       });
     }
     const fovMeta = this.fovMeta(settings.fovRadius);
-    const tracks = this.tracker.update(synth);
+    const tracks = this.tracker.update(synth, now);
     for (const track of tracks) track.insideFov = this.isInsideFov(track, fovMeta);
     this.latestTracks = tracks;
     this.fpsEma = this.fpsEma * (1 - EMA) + (1000 / settings.targetFps) * EMA;

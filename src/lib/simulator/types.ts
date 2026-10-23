@@ -6,6 +6,9 @@
  * captured frames anywhere. Everything runs locally in the browser.
  */
 
+/** Square input size expected by the detection model (YOLOv10n default). */
+export const DETECTION_INPUT_SIZE = 640;
+
 export interface RawDetection {
   /** Normalized (0..1) top-left corner in source-video coordinates. */
   x: number;

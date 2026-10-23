@@ -16,6 +16,9 @@ a live overlay.
 - **Live screen capture** via `navigator.mediaDevices.getDisplayMedia()` —
   screen, window or tab, with start / pause / resume / stop and full handling
   of denied permissions and externally ended sharing.
+- **Local video files as a source**: load any MP4/WebM gameplay clip instead
+  of (or as a replacement for) a screen capture — looped, with native
+  transport controls in the preview. Just as local: nothing is uploaded.
 - **Real object detection**: YOLOv10n (COCO) runs in a Web Worker through
   **ONNX Runtime Web** with automatic **WebGPU → WASM** backend fallback.
 - **Honest model story**: the preset detects COCO *“person”* — an honest proxy
@@ -30,7 +33,11 @@ a live overlay.
 - **FOV circle + crosshair**: configurable radius, color, transparency,
   thickness; optional highlighting of targets inside the FOV. Purely visual.
 - **Object tracking**: IoU matching + exponential smoothing keeps boxes stable
-  between frames; tracks age out gracefully.
+  between frames; constant-velocity prediction (Kalman-lite) extrapolates box
+  motion between detection frames so movement stays coherent even when
+  inference runs well below display rate; tracks age out gracefully.
+- **Settings persistence**: overlay, detection and model choices survive page
+  reloads via localStorage.
 - **Performance monitoring**: status bar with processing FPS, inference
   latency, backend, model status and detection counts, plus an adaptive
   frame-sampling rate when the hardware can't keep up.

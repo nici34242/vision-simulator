@@ -6,10 +6,10 @@
  * detections. Nothing is ever sent to a server — inference is 100% local.
  */
 import type { InferenceSession, Tensor } from "onnxruntime-web";
-import { COCO_CLASSES, type RawDetection } from "./types";
+import { COCO_CLASSES, DETECTION_INPUT_SIZE, type RawDetection } from "./types";
 
 const ORT_CDN = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/";
-const MODEL_INPUT = 640;
+const MODEL_INPUT = DETECTION_INPUT_SIZE;
 
 interface LoadMsg {
   type: "load";
