@@ -173,9 +173,13 @@ export class DetectionEngine {
     this.fpsEma =
       this.fpsEma * (1 - EMA) + (1000 / Math.max(1, now - this.lastProcessAt)) * EMA;
 
-    // Only "person" detections are enemy-like proxies; other classes are noise here.
-    const persons = msg.detections.filter((d) => d.className === PERSON_CLASS);
     const settings = settingsStore.get();
+    // Only "person" detections are enemy-like proxies; other classes are noise
+    // here. Re-apply the user's threshold so stale in-flight jobs (sent with an
+    // older threshold) can't surface detections above the current setting.
+    const persons = msg.detections.filter(
+      (d) => d.className === PERSON_CLASS && d.score >= settings.confidenceThreshold,
+    );
     const fovMeta = this.fovMeta(settings.fovRadius);
     const tracks = this.tracker.update(persons, now);
     for (const t of tracks) t.insideFov = this.isInsideFov(t, fovMeta);
@@ -233,8 +237,12 @@ export class DetectionEngine {
             type: "infer",
             frameId: this.frameId,
             bitmap,
-            videoW: video.videoWidth,
-            videoH: video.videoHeight,
+            // The frame was pre-scaled at capture: the worker un-maps its
+            // letterbox output into THIS bitmap's pixel space, whose aspect
+            // ratio equals the source video's. Normalized coords are then
+            // identical to video-relative coordinates.
+            videoW: resizeWidth,
+            videoH: resizeHeight,
             minScore: settings.confidenceThreshold,
             t0: this.lastProcessAt,
           },
