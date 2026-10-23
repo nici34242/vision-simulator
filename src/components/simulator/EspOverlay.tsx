@@ -41,87 +41,103 @@ export function EspOverlay({ engine, viewRect }: EspOverlayProps) {
     const entries = new Map<number, DrawEntry>();
     let lastFrame = performance.now();
     let lastDebugLog = 0;
+    let lastHeartbeat = 0;
+    let lastErrorLog = 0;
+    let drawCount = 0;
 
     const draw = () => {
       rafId = requestAnimationFrame(draw);
       const canvas = canvasRef.current;
       const rect = rectRef.current;
-      if (!canvas || rect.width < 2) return;
       const now = performance.now();
       const dt = Math.min(100, now - lastFrame);
       lastFrame = now;
+      drawCount += 1;
 
-      const dpr = window.devicePixelRatio || 1;
-      if (
-        canvas.width !== Math.round(rect.width * dpr) ||
-        canvas.height !== Math.round(rect.height * dpr)
-      ) {
-        canvas.width = Math.round(rect.width * dpr);
-        canvas.height = Math.round(rect.height * dpr);
-      }
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, rect.width, rect.height);
-
-      const settings = settingsStore.get();
-      const tracks = engine.getTracks();
-      const cx = rect.width / 2;
-      const cy = rect.height / 2;
-
-      // Render-path diagnostics (throttled): tells us exactly what the overlay
-      // receives and draws — box count, view size, first box coordinates.
-      if (now - lastDebugLog > 3000) {
-        lastDebugLog = now;
-        if (tracks.length > 0) {
-          const t = tracks[0];
-          pushLog(
-            "info",
-            `[overlay] drawing ${tracks.length} box(es) · view ${Math.round(rect.width)}×${Math.round(rect.height)}px · #${t.id}: x=${t.x.toFixed(2)} y=${t.y.toFixed(2)} w=${t.w.toFixed(2)} h=${t.h.toFixed(2)}${settings.showEspBoxes ? "" : "  ⚠ ESP BOXES TOGGLED OFF!"}`,
-          );
-        } else {
-          pushLog(
-            "info",
-            `[overlay] no boxes to draw · view ${Math.round(rect.width)}×${Math.round(rect.height)}px`,
-          );
-        }
+      // Heartbeat BEFORE any early-return: proves the loop is alive and shows
+      // the rect size it sees — the decisive signal for missing overlays.
+      if (now - lastHeartbeat > 5000) {
+        lastHeartbeat = now;
+        pushLog(
+          "info",
+          `[overlay] loop alive · draw#${drawCount} · rect ${Math.round(rect.width)}×${Math.round(rect.height)}${canvas ? "" : " · canvas missing!"}`,
+        );
       }
 
-      // Time-constant exponential interpolation: identical detection rate,
-      // independent of refresh rate (0.5 convergence in ~60 ms).
-      const ease = 1 - Math.exp(-dt / 85);
-      const seen = new Set<number>();
-      for (const track of tracks) {
-        seen.add(track.id);
-        let entry = entries.get(track.id);
-        if (!entry) {
-          entry = { x: track.x, y: track.y, w: track.w, h: track.h, target: track, lastSeen: now };
-          entries.set(track.id, entry);
+      try {
+        if (!canvas || rect.width < 2) return;
+        const dpr = window.devicePixelRatio || 1;
+        if (
+          canvas.width !== Math.round(rect.width * dpr) ||
+          canvas.height !== Math.round(rect.height * dpr)
+        ) {
+          canvas.width = Math.round(rect.width * dpr);
+          canvas.height = Math.round(rect.height * dpr);
         }
-        entry.target = track;
-        entry.lastSeen = now;
-        entry.x += (track.x - entry.x) * ease;
-        entry.y += (track.y - entry.y) * ease;
-        entry.w += (track.w - entry.w) * ease;
-        entry.h += (track.h - entry.h) * ease;
-        drawTrack(ctx, track, entry, rect, settings, cx, cy);
-      }
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, rect.width, rect.height);
 
-      // Age out stale entries with a short fade (covers tracker age-out delay).
-      for (const [id, entry] of entries) {
-        if (seen.has(id)) continue;
-        const age = now - entry.lastSeen;
-        if (age > 160) {
-          entries.delete(id);
-          continue;
+        const settings = settingsStore.get();
+        const tracks = engine.getTracks();
+        const cx = rect.width / 2;
+        const cy = rect.height / 2;
+
+        // Render-path diagnostics (throttled): what the overlay receives.
+        if (now - lastDebugLog > 3000) {
+          lastDebugLog = now;
+          if (tracks.length > 0) {
+            const t = tracks[0];
+            pushLog(
+              "info",
+              `[overlay] drawing ${tracks.length} box(es) · view ${Math.round(rect.width)}×${Math.round(rect.height)}px · #${t.id}: x=${t.x.toFixed(2)} y=${t.y.toFixed(2)} w=${t.w.toFixed(2)} h=${t.h.toFixed(2)}${settings.showEspBoxes ? "" : "  ⚠ ESP BOXES TOGGLED OFF!"}`,
+            );
+          }
         }
-        if (entry.target) {
-          const ghost: Track = {
-            ...entry.target,
-            confirmed: false,
-            insideFov: false,
-          };
-          drawTrack(ctx, ghost, entry, rect, settings, cx, cy, 1 - age / 160);
+
+        // Time-constant exponential interpolation: identical detection rate,
+        // independent of refresh rate (0.5 convergence in ~60 ms).
+        const ease = 1 - Math.exp(-dt / 85);
+        const seen = new Set<number>();
+        for (const track of tracks) {
+          seen.add(track.id);
+          let entry = entries.get(track.id);
+          if (!entry) {
+            entry = { x: track.x, y: track.y, w: track.w, h: track.h, target: track, lastSeen: now };
+            entries.set(track.id, entry);
+          }
+          entry.target = track;
+          entry.lastSeen = now;
+          entry.x += (track.x - entry.x) * ease;
+          entry.y += (track.y - entry.y) * ease;
+          entry.w += (track.w - entry.w) * ease;
+          entry.h += (track.h - entry.h) * ease;
+          drawTrack(ctx, track, entry, rect, settings, cx, cy);
+        }
+
+        // Age out stale entries with a short fade (covers tracker age-out delay).
+        for (const [id, entry] of entries) {
+          if (seen.has(id)) continue;
+          const age = now - entry.lastSeen;
+          if (age > 160) {
+            entries.delete(id);
+            continue;
+          }
+          if (entry.target) {
+            const ghost: Track = {
+              ...entry.target,
+              confirmed: false,
+              insideFov: false,
+            };
+            drawTrack(ctx, ghost, entry, rect, settings, cx, cy, 1 - age / 160);
+          }
+        }
+      } catch (err) {
+        if (now - lastErrorLog > 5000) {
+          lastErrorLog = now;
+          const message = err instanceof Error ? err.message : String(err);
+          pushLog("error", `[overlay] draw error: ${message}`);
         }
       }
     };
