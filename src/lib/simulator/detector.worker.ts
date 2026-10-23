@@ -31,6 +31,9 @@ type WorkerMsg = LoadMsg | InferMsg;
 let session: InferenceSession | null = null;
 let scratchCanvas: OffscreenCanvas | null = null;
 let scratchCtx: OffscreenCanvasRenderingContext2D | null = null;
+/** Cached runtime module + preallocated input buffer for hot-loop reuse. */
+let ort: typeof import("onnxruntime-web") | null = null;
+let inputBuffer: Float32Array | null = null;
 
 function post(msg: unknown, transfer?: Transferable[]) {
   (self as unknown as Worker).postMessage(msg, transfer ?? []);
@@ -38,7 +41,7 @@ function post(msg: unknown, transfer?: Transferable[]) {
 
 async function loadModel(url: string) {
   try {
-    const ort = await import("onnxruntime-web");
+    ort = await import("onnxruntime-web");
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.simd = true;
     (ort.env.wasm as { wasmPaths?: string }).wasmPaths = ORT_CDN;
@@ -70,6 +73,7 @@ async function loadModel(url: string) {
     scratchCanvas = new OffscreenCanvas(MODEL_INPUT, MODEL_INPUT);
     scratchCtx = scratchCanvas.getContext("2d", { willReadFrequently: true });
     if (!scratchCtx) throw new Error("OffscreenCanvas 2D context unavailable");
+    inputBuffer = new Float32Array(3 * MODEL_INPUT * MODEL_INPUT);
 
     post({ type: "loaded", backend, inputSize: MODEL_INPUT });
   } catch (err) {
@@ -92,13 +96,13 @@ function letterbox(bitmap: ImageBitmap) {
   return { scale, padX, padY };
 }
 
-/** HWC RGBA → CHW float32 RGB tensor, normalized to 0..1. */
+/** HWC RGBA → CHW float32 RGB tensor, normalized to 0..1. Reuses its buffer. */
 function toTensor(): Float32Array {
   const ctx = scratchCtx!;
   const img = ctx.getImageData(0, 0, MODEL_INPUT, MODEL_INPUT);
   const px = img.data;
   const n = MODEL_INPUT * MODEL_INPUT;
-  const buffer = new Float32Array(3 * n);
+  const buffer = inputBuffer!;
   for (let p = 0; p < n; p++) {
     buffer[p] = px[p * 4] / 255;
     buffer[n + p] = px[p * 4 + 1] / 255;
@@ -166,7 +170,7 @@ self.onmessage = async (event: MessageEvent<WorkerMsg>) => {
     }
     if (msg.type === "infer") {
       const { frameId, bitmap, videoW, videoH, minScore } = msg;
-      if (!session || !scratchCtx) {
+      if (!session || !scratchCtx || !ort || !inputBuffer) {
         bitmap.close();
         post({ type: "error", frameId, message: "Model not loaded yet" });
         return;
@@ -178,7 +182,6 @@ self.onmessage = async (event: MessageEvent<WorkerMsg>) => {
       const input = toTensor();
       const tPrep = performance.now();
 
-      const ort = await import("onnxruntime-web");
       const tensor = new ort.Tensor("float32", input, [1, 3, MODEL_INPUT, MODEL_INPUT]);
       const feeds: Record<string, Tensor> = { [session.inputNames[0]]: tensor };
       const results = await session.run(feeds);

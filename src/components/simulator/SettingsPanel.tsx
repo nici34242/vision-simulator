@@ -282,11 +282,11 @@ export function SettingsPanel({ engine }: SettingsPanelProps) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {[5, 10, 15, 30].map((fps) => (
-                <SelectItem key={fps} value={String(fps)} className="cursor-pointer">
-                  {fps} FPS{fps === 30 ? " (heavy)" : ""}
-                </SelectItem>
-              ))}
+            {[5, 10, 15, 30, 60].map((fps) => (
+              <SelectItem key={fps} value={String(fps)} className="cursor-pointer">
+                {fps} FPS{fps === 30 ? " (heavy)" : fps === 60 ? " (experimental)" : ""}
+              </SelectItem>
+            ))}
             </SelectContent>
           </Select>
         </div>
@@ -332,6 +332,11 @@ export function SettingsPanel({ engine }: SettingsPanelProps) {
             the custom URL (see Model & Integration).
           </p>
         </div>
+        <p className="text-[11px] leading-4 text-muted-foreground">
+          60 FPS needs the WebGPU backend and a fast GPU. On WASM the engine
+          adapts honestly below the target instead of stuttering — watch the
+          “adaptive” note in the status bar.
+        </p>
         <Toggle
           label="Demo mode"
           hint="Synthetic targets to test overlays without a model"

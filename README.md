@@ -34,6 +34,10 @@ a live overlay.
 - **Performance monitoring**: status bar with processing FPS, inference
   latency, backend, model status and detection counts, plus an adaptive
   frame-sampling rate when the hardware can't keep up.
+- **Up to 60 FPS (experimental)**: the overlay renders at display rate with
+  interpolated boxes; 60 detections/s need the WebGPU backend and a fast GPU
+  — on WASM the engine throttles honestly below the target instead of
+  stuttering.
 - **Live detection log** and a full settings panel with reset-to-defaults.
 - Letterbox-aware overlay scaling: boxes stay glued to the video across
   resolutions, aspect ratios and window resizes.

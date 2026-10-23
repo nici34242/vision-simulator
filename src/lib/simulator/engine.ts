@@ -192,7 +192,7 @@ export class DetectionEngine {
 
     // Demo mode runs standalone so overlays can be tested before capture.
     if (settings.demoMode) {
-      const demoInterval = Math.max(1000 / settings.targetFps, 40);
+      const demoInterval = Math.max(1000 / settings.targetFps, 16);
       if (now - this.lastProcessAt < demoInterval) return;
       this.lastProcessAt = now;
       this.processDemo(settings, now);
@@ -204,9 +204,11 @@ export class DetectionEngine {
 
     const inferBudget = this.inferEma;
     // Adaptive sampling: never schedule faster than the hardware keeps up.
+    // Tight floor so 60 FPS is reachable on fast WebGPU backends, while slow
+    // WASM inference still throttles honestly via the same formula.
     const interval = Math.max(
       1000 / settings.targetFps,
-      inferBudget * 1.25 + 18,
+      inferBudget * 1.1 + 8,
     );
     if (this.busy || now - this.lastProcessAt < interval) return;
 
@@ -317,7 +319,7 @@ export class DetectionEngine {
     const settings = settingsStore.get();
     const adaptive =
       adaptiveOverride ??
-      (this.inferEma * 1.25 + 18 > 1000 / settings.targetFps);
+      (this.inferEma * 1.1 + 8 > 1000 / settings.targetFps);
     const status: EngineStatus = {
       processingFps: this.fpsEma,
       inferenceMs: this.inferEma,

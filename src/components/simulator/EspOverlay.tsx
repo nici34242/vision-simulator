@@ -9,14 +9,27 @@ interface EspOverlayProps {
   viewRect: ViewRect;
 }
 
+interface DrawEntry {
+  /** Currently drawn (interpolated) normalized box. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Latest track this entry follows. */
+  target: Track | null;
+  lastSeen: number;
+}
+
 /**
- * ESP overlay. Draws one animation loop that reads the engine's latest tracks
- * and the current settings directly from the stores — no React state in the
- * hot path, so toggling sliders never re-renders the frame pipeline.
+ * ESP overlay. A rAF render loop (display rate, up to 60 fps) reads the
+ * engine's latest tracks and settings directly from the stores — no React
+ * state in the hot path.
  *
- * All box geometry is normalized (0..1) in source-video coordinates and is
- * mapped onto the letterboxed preview rect, so overlays stay glued to the
- * video across resolutions, aspect ratios and window resizes.
+ * Detection runs slower than display (adaptive sampling), so drawn boxes are
+ * exponentially interpolated toward the newest detected position each frame.
+ * The overlay stays fluid at high refresh rates while the tracker remains the
+ * source of truth. All geometry is normalized (0..1) in source-video
+ * coordinates and mapped onto the letterboxed preview rect.
  */
 export function EspOverlay({ engine, viewRect }: EspOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -25,14 +38,23 @@ export function EspOverlay({ engine, viewRect }: EspOverlayProps) {
 
   useEffect(() => {
     let rafId = 0;
+    const entries = new Map<number, DrawEntry>();
+    let lastFrame = performance.now();
 
     const draw = () => {
       rafId = requestAnimationFrame(draw);
       const canvas = canvasRef.current;
       const rect = rectRef.current;
       if (!canvas || rect.width < 2) return;
+      const now = performance.now();
+      const dt = Math.min(100, now - lastFrame);
+      lastFrame = now;
+
       const dpr = window.devicePixelRatio || 1;
-      if (canvas.width !== Math.round(rect.width * dpr) || canvas.height !== Math.round(rect.height * dpr)) {
+      if (
+        canvas.width !== Math.round(rect.width * dpr) ||
+        canvas.height !== Math.round(rect.height * dpr)
+      ) {
         canvas.width = Math.round(rect.width * dpr);
         canvas.height = Math.round(rect.height * dpr);
       }
@@ -46,8 +68,42 @@ export function EspOverlay({ engine, viewRect }: EspOverlayProps) {
       const cx = rect.width / 2;
       const cy = rect.height / 2;
 
+      // Time-constant exponential interpolation: identical detection rate,
+      // independent of refresh rate (0.5 convergence in ~60 ms).
+      const ease = 1 - Math.exp(-dt / 85);
+      const seen = new Set<number>();
       for (const track of tracks) {
-        drawTrack(ctx, track, rect, settings, cx, cy);
+        seen.add(track.id);
+        let entry = entries.get(track.id);
+        if (!entry) {
+          entry = { x: track.x, y: track.y, w: track.w, h: track.h, target: track, lastSeen: now };
+          entries.set(track.id, entry);
+        }
+        entry.target = track;
+        entry.lastSeen = now;
+        entry.x += (track.x - entry.x) * ease;
+        entry.y += (track.y - entry.y) * ease;
+        entry.w += (track.w - entry.w) * ease;
+        entry.h += (track.h - entry.h) * ease;
+        drawTrack(ctx, track, entry, rect, settings, cx, cy);
+      }
+
+      // Age out stale entries with a short fade (covers tracker age-out delay).
+      for (const [id, entry] of entries) {
+        if (seen.has(id)) continue;
+        const age = now - entry.lastSeen;
+        if (age > 160) {
+          entries.delete(id);
+          continue;
+        }
+        if (entry.target) {
+          const ghost: Track = {
+            ...entry.target,
+            confirmed: false,
+            insideFov: false,
+          };
+          drawTrack(ctx, ghost, entry, rect, settings, cx, cy, 1 - age / 160);
+        }
       }
     };
 
@@ -72,16 +128,18 @@ export function EspOverlay({ engine, viewRect }: EspOverlayProps) {
 function drawTrack(
   ctx: CanvasRenderingContext2D,
   track: Track,
+  entry: DrawEntry,
   rect: { width: number; height: number },
   s: ReturnType<typeof settingsStore.get>,
   centerX: number,
   centerY: number,
+  fade = 1,
 ) {
-  const x = track.x * rect.width;
-  const y = track.y * rect.height;
-  const w = track.w * rect.width;
-  const h = track.h * rect.height;
-  const alpha = s.boxOpacity * (track.confirmed ? 1 : 0.65);
+  const x = entry.x * rect.width;
+  const y = entry.y * rect.height;
+  const w = entry.w * rect.width;
+  const h = entry.h * rect.height;
+  const alpha = s.boxOpacity * (track.confirmed ? 1 : 0.65) * fade;
   const color = s.boxColor;
 
   // Optional connection line from screen center to the box center.
@@ -132,33 +190,33 @@ function drawTrack(
     ctx.restore();
   }
 
-  // Label: confidence % (+ simulated distance + track id).
-  const lines: string[] = [];
-  if (s.showConfidence) {
-    lines.push(
-      `${track.confirmed ? "" : "~"}${Math.round(track.score * 100)}%`,
-    );
-  }
-  if (s.showDistance) {
-    // Simulated, non-real distance derived from box height — display only.
-    const meters = Math.max(1, Math.round(2.2 / Math.max(0.01, track.h)));
-    lines.push(`${meters} m · sim`);
-  }
-  if (lines.length > 0) {
-    const label = lines.join("  ·  ");
-    ctx.save();
-    ctx.font = "600 10px ui-monospace, SFMono-Regular, Menlo, monospace";
-    const metrics = ctx.measureText(label);
-    const padX = 4;
-    const boxW = metrics.width + padX * 2;
-    const boxH = 16;
-    const lx = x;
-    const ly = Math.max(0, y - boxH - 2);
-    ctx.globalAlpha = alpha * 0.85;
-    ctx.fillStyle = "rgba(8, 12, 18, 0.72)";
-    ctx.fillRect(lx, ly, boxW, boxH);
-    ctx.fillStyle = color;
-    ctx.fillText(label, lx + padX, ly + 11.5);
-    ctx.restore();
+  // Label: confidence % (+ simulated distance). Hidden while fading ghosts.
+  if (fade >= 1) {
+    const lines: string[] = [];
+    if (s.showConfidence) {
+      lines.push(`${track.confirmed ? "" : "~"}${Math.round(track.score * 100)}%`);
+    }
+    if (s.showDistance) {
+      // Simulated, non-real distance derived from box height — display only.
+      const meters = Math.max(1, Math.round(2.2 / Math.max(0.01, track.h)));
+      lines.push(`${meters} m · sim`);
+    }
+    if (lines.length > 0) {
+      const label = lines.join("  ·  ");
+      ctx.save();
+      ctx.font = "600 10px ui-monospace, SFMono-Regular, Menlo, monospace";
+      const metrics = ctx.measureText(label);
+      const padX = 4;
+      const boxW = metrics.width + padX * 2;
+      const boxH = 16;
+      const lx = x;
+      const ly = Math.max(0, y - boxH - 2);
+      ctx.globalAlpha = alpha * 0.85;
+      ctx.fillStyle = "rgba(8, 12, 18, 0.72)";
+      ctx.fillRect(lx, ly, boxW, boxH);
+      ctx.fillStyle = color;
+      ctx.fillText(label, lx + padX, ly + 11.5);
+      ctx.restore();
+    }
   }
 }
