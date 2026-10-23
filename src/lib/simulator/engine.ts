@@ -175,6 +175,9 @@ export class DetectionEngine {
   private onResult(msg: ResultMsg) {
     this.busy = false;
     const now = performance.now();
+    // Frame age at result time = capture → transfer → infer → decode → back.
+    // The tracker uses this to advance detections to the present.
+    const detectionAgeMs = Math.max(0, now - this.lastSentAt);
     const tInfer = Math.max(0, msg.timings.tInfer);
     this.inferEma = this.inferEma * (1 - EMA) + tInfer * EMA;
     this.frameEma = this.frameEma * (1 - EMA) + (now - this.lastSentAt) * EMA;
@@ -189,7 +192,7 @@ export class DetectionEngine {
       (d) => d.className === PERSON_CLASS && d.score >= settings.confidenceThreshold,
     );
     const fovMeta = this.fovMeta(settings.fovRadius);
-    const tracks = this.tracker.update(persons, now);
+    const tracks = this.tracker.update(persons, now, detectionAgeMs);
     for (const t of tracks) t.insideFov = this.isInsideFov(t, fovMeta);
     this.latestTracks = tracks;
     this.emitTrackEvents(tracks);
@@ -283,7 +286,7 @@ export class DetectionEngine {
       });
     }
     const fovMeta = this.fovMeta(settings.fovRadius);
-    const tracks = this.tracker.update(synth, now);
+    const tracks = this.tracker.update(synth, now, 16);
     for (const track of tracks) track.insideFov = this.isInsideFov(track, fovMeta);
     this.latestTracks = tracks;
     this.fpsEma = this.fpsEma * (1 - EMA) + (1000 / settings.targetFps) * EMA;

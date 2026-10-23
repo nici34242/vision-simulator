@@ -58,10 +58,12 @@ export class ObjectTracker {
 
   constructor(config: Partial<{ iouThreshold: number; confirmHits: number; maxLost: number; smoothing: number }> = {}) {
     this.config = {
-      iouThreshold: 0.2,
-      confirmHits: 3,
-      maxLost: 10,
-      smoothing: 0.45,
+      // Forgiving: fast-moving small figures often overlap <20% between
+      // detections — strict thresholds churn track IDs and flicker the boxes.
+      iouThreshold: 0.1,
+      confirmHits: 2,
+      maxLost: 15,
+      smoothing: 0.5,
       ...config,
     };
   }
@@ -78,10 +80,13 @@ export class ObjectTracker {
   }
 
   /**
-   * Feed raw detections from the newest processed frame at time `now`;
-   * returns visible tracks (positions predicted to `now`).
+   * Feed raw detections from a frame that was captured `detectionAgeMs`
+   * before `now` (pipeline latency); returns visible tracks predicted to
+   * `now`. Matched detections are advanced by velocity × age so the smoothed
+   * position targets the figure's *current* spot instead of its past one —
+   * this cancels most of the visible lag of offline inference.
    */
-  update(detections: RawDetection[], now: number): Track[] {
+  update(detections: RawDetection[], now: number, detectionAgeMs = 0): Track[] {
     const detList = [...detections].sort((a, b) => b.score - a.score);
     const matchedDets = new Set<number>();
     const matchedTracks = new Set<number>();
@@ -110,14 +115,22 @@ export class ObjectTracker {
         // Velocity from the observed displacement since the last match.
         const dt = Math.max(0.008, track.lastDt);
         const a = this.config.smoothing;
+        // Latency compensation: the detection shows the figure where it was
+        // `detectionAgeMs` ago — advance it along the track's own velocity
+        // so the tracker chases the present, not the past.
+        const age = Math.min(0.25, Math.max(0, detectionAgeMs) / 1000);
+        const targetX = d.x + track.vx * age;
+        const targetY = d.y + track.vy * age;
+        const targetW = d.w + track.vw * age;
+        const targetH = d.h + track.vh * age;
         const prevX = track.x;
         const prevY = track.y;
         const prevW = track.w;
         const prevH = track.h;
-        track.x += (d.x - track.x) * a;
-        track.y += (d.y - track.y) * a;
-        track.w += (d.w - track.w) * a;
-        track.h += (d.h - track.h) * a;
+        track.x += (targetX - track.x) * a;
+        track.y += (targetY - track.y) * a;
+        track.w += (targetW - track.w) * a;
+        track.h += (targetH - track.h) * a;
         const velA = 0.4;
         track.vx = clampVel(velA * ((track.x - prevX) / dt) + (1 - velA) * track.vx);
         track.vy = clampVel(velA * ((track.y - prevY) / dt) + (1 - velA) * track.vy);

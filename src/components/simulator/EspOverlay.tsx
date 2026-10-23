@@ -99,9 +99,10 @@ export function EspOverlay({ engine, viewRect }: EspOverlayProps) {
           }
         }
 
-        // Time-constant exponential interpolation: identical detection rate,
-        // independent of refresh rate (0.5 convergence in ~60 ms).
-        const ease = 1 - Math.exp(-dt / 85);
+      // Time-constant exponential interpolation — kept fast because the
+      // tracker already latency-compensates detections (target follows the
+      // figure's present position; this only smooths micro-jitter).
+      const ease = 1 - Math.exp(-dt / 45);
         const seen = new Set<number>();
         for (const track of tracks) {
           seen.add(track.id);
