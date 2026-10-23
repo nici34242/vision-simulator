@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { DetectionEngine } from "@/lib/simulator/engine";
-import { settingsStore } from "@/lib/simulator/store";
+import { pushLog, settingsStore } from "@/lib/simulator/store";
 import type { Track } from "@/lib/simulator/types";
 import type { ViewRect } from "./VideoPreview";
 
@@ -40,6 +40,7 @@ export function EspOverlay({ engine, viewRect }: EspOverlayProps) {
     let rafId = 0;
     const entries = new Map<number, DrawEntry>();
     let lastFrame = performance.now();
+    let lastDebugLog = 0;
 
     const draw = () => {
       rafId = requestAnimationFrame(draw);
@@ -67,6 +68,24 @@ export function EspOverlay({ engine, viewRect }: EspOverlayProps) {
       const tracks = engine.getTracks();
       const cx = rect.width / 2;
       const cy = rect.height / 2;
+
+      // Render-path diagnostics (throttled): tells us exactly what the overlay
+      // receives and draws — box count, view size, first box coordinates.
+      if (now - lastDebugLog > 3000) {
+        lastDebugLog = now;
+        if (tracks.length > 0) {
+          const t = tracks[0];
+          pushLog(
+            "info",
+            `[overlay] drawing ${tracks.length} box(es) · view ${Math.round(rect.width)}×${Math.round(rect.height)}px · #${t.id}: x=${t.x.toFixed(2)} y=${t.y.toFixed(2)} w=${t.w.toFixed(2)} h=${t.h.toFixed(2)}${settings.showEspBoxes ? "" : "  ⚠ ESP BOXES TOGGLED OFF!"}`,
+          );
+        } else {
+          pushLog(
+            "info",
+            `[overlay] no boxes to draw · view ${Math.round(rect.width)}×${Math.round(rect.height)}px`,
+          );
+        }
+      }
 
       // Time-constant exponential interpolation: identical detection rate,
       // independent of refresh rate (0.5 convergence in ~60 ms).
