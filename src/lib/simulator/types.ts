@@ -70,6 +70,8 @@ export interface EngineStatus {
   backend: string;
   /** True when adaptive sampling slowed the pipeline below the target FPS. */
   adaptive: boolean;
+  /** Serial of the engine instance that last pushed status (diagnostics). */
+  engineSerial: number;
 }
 
 export interface LogEntry {

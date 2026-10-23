@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { DetectionEngine } from "@/lib/simulator/engine";
-import { pushLog, settingsStore } from "@/lib/simulator/store";
+import { pushLog, settingsStore, statusStore } from "@/lib/simulator/store";
 import type { Track } from "@/lib/simulator/types";
 import type { ViewRect } from "./VideoPreview";
 
@@ -58,9 +58,12 @@ export function EspOverlay({ engine, viewRect }: EspOverlayProps) {
       // the rect size it sees — the decisive signal for missing overlays.
       if (now - lastHeartbeat > 5000) {
         lastHeartbeat = now;
+        const status = statusStore.get();
+        const tracksNow = engine.getTracks();
+        const mismatch = tracksNow.length === 0 && status.tracks > 0;
         pushLog(
-          "info",
-          `[overlay] loop alive · draw#${drawCount} · rect ${Math.round(rect.width)}×${Math.round(rect.height)}${canvas ? "" : " · canvas missing!"}`,
+          mismatch ? "error" : "info",
+          `[overlay] loop alive · engine#${engine.serial} · draw#${drawCount} · rect ${Math.round(rect.width)}×${Math.round(rect.height)}${canvas ? "" : " · canvas missing!"}${mismatch ? ` · ⚠ MISMATCH: status reports ${status.tracks} tracked (engine#${status.engineSerial}) but this overlay's engine#${engine.serial} returns 0` : ""}`,
         );
       }
 

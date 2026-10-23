@@ -40,6 +40,8 @@ interface ErrorMsg {
 
 type WorkerMsg = ResultMsg | LoadedMsg | LoadErrorMsg | ErrorMsg;
 
+let ENGINE_SERIAL = 0;
+
 /**
  * Owns the detection worker, runs the capture → infer → track pipeline and
  * publishes smoothed tracks for the overlay plus throttled status for the UI.
@@ -48,6 +50,8 @@ type WorkerMsg = ResultMsg | LoadedMsg | LoadErrorMsg | ErrorMsg;
  * issues any input events and never interacts with any game process.
  */
 export class DetectionEngine {
+  /** Instance identity for diagnostics (guards against duplicate instances). */
+  readonly serial = ++ENGINE_SERIAL;
   private worker: Worker | null = null;
   private tracker = new ObjectTracker();
   private video: HTMLVideoElement | null = null;
@@ -83,10 +87,12 @@ export class DetectionEngine {
     return this.worker;
   }
 
-  /** Load (or reload) the model selected in settings. */
+  /** Load (or reload) the model selected in settings (skips if redundant). */
   loadModel(): void {
     const settings = settingsStore.get();
     const url = resolveModelUrl(settings);
+    if (this.modelUrl === url) return; // already loading or loaded for this URL
+    this.modelUrl = url;
     if (!url) {
       pushLog(
         "warn",
@@ -100,6 +106,8 @@ export class DetectionEngine {
     pushLog("info", `Loading model… ${url.split("/").slice(-1)[0]}`);
     this.worker!.postMessage({ type: "load", url });
   }
+
+  private modelUrl = "";
 
   attachVideo(video: HTMLVideoElement | null) {
     this.video = video;
@@ -147,7 +155,7 @@ export class DetectionEngine {
       case "loaded":
         this.backend = msg.backend;
         modelStore.set("ready");
-        pushLog("success", `Model ready · ${msg.backend.toUpperCase()} backend`);
+        pushLog("success", `[engine#${this.serial}] Model ready · ${msg.backend.toUpperCase()} backend`);
         break;
       case "load-error":
         this.backend = "—";
@@ -312,7 +320,7 @@ export class DetectionEngine {
       if (t.confirmed && wasConfirmed === false) {
         pushLog(
           "detect",
-          `Target #${t.id} confirmed · ${(t.score * 100).toFixed(0)}% · ${t.insideFov ? "in FOV" : "outside FOV"}`,
+          `[engine#${this.serial}] Target #${t.id} confirmed · ${(t.score * 100).toFixed(0)}% · ${t.insideFov ? "in FOV" : "outside FOV"}`,
         );
       }
       this.knownTracks.set(t.id, t.confirmed);
@@ -343,7 +351,15 @@ export class DetectionEngine {
       tracks,
       backend: this.backend,
       adaptive,
+      engineSerial: this.serial,
     };
     statusStore.set(status);
   }
 }
+
+/**
+ * Single shared engine instance. React StrictMode remounts can create two
+ * Dashboard instances; a module singleton guarantees the overlay, settings
+ * and dashboard all talk to the exact engine that runs the pipeline.
+ */
+export const detectionEngine = new DetectionEngine();

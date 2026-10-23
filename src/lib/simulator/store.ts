@@ -73,6 +73,7 @@ export const statusStore = createStore<EngineStatus>({
   tracks: 0,
   backend: "—",
   adaptive: false,
+  engineSerial: 0,
 });
 export const captureStore = createStore<CaptureStatus>("idle");
 /** Active video source: none, a live screen capture, or a local video file. */

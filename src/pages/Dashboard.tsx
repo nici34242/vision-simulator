@@ -17,7 +17,7 @@ import { PerformanceMonitor } from "@/components/simulator/PerformanceMonitor";
 import { ScreenCapture } from "@/components/simulator/ScreenCapture";
 import { SettingsPanel } from "@/components/simulator/SettingsPanel";
 import { VideoPreview } from "@/components/simulator/VideoPreview";
-import { DetectionEngine } from "@/lib/simulator/engine";
+import { detectionEngine } from "@/lib/simulator/engine";
 
 type View = "simulator" | "model" | "privacy";
 
@@ -47,17 +47,17 @@ export default function Dashboard() {
   const [view, setView] = useState<View>("simulator");
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const engineRef = useRef<DetectionEngine | null>(null);
-  const engine = (engineRef.current ??= new DetectionEngine());
+  // Module singleton: StrictMode remounts must never fork the pipeline state.
+  const engine = detectionEngine;
 
   useEffect(() => {
     engine.attachVideo(videoRef.current);
     engine.loadModel();
     engine.start();
     return () => {
+      // Detaching stops processing; the model and worker stay warm for the
+      // tab's lifetime so remounts reconnect instantly.
       engine.attachVideo(null);
-      engine.dispose();
-      engineRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
