@@ -1,293 +1,152 @@
-## Overview
+# AI Vision Simulator
 
-This project uses the following tech stack:
-- Vite
-- Typescript
-- React Router v7 (all imports from `react-router` instead of `react-router-dom`)
-- React 19 (for frontend components)
-- Tailwind v4 (for styling)
-- Shadcn UI (for UI components library)
-- Lucide Icons (for icons)
-- Convex (for backend & database)
-- Convex Auth (for authentication)
-- Framer Motion (for animations)
-- Three js (for 3d models)
+A browser-based **AI aim-assist / ESP simulator** for training, analysis and
+demonstration purposes. Point it at any screen, window or browser tab (a
+YouTube gameplay video works great) and watch real YOLO object detection,
+ESP bounding boxes, a configurable FOV circle and object tracking rendered as
+a live overlay.
 
-All relevant files live in the 'src' directory.
+> **This is a visual simulation only.** The app never simulates mouse or
+> keyboard input, never reads game memory, never injects into any process and
+> never attempts to bypass anti-cheat systems. All processing is local — no
+> frames are ever recorded or uploaded.
 
-Use bun for the package manager.
+## Features
 
-## Setup
+- **Live screen capture** via `navigator.mediaDevices.getDisplayMedia()` —
+  screen, window or tab, with start / pause / resume / stop and full handling
+  of denied permissions and externally ended sharing.
+- **Real object detection**: YOLOv10n (COCO) runs in a Web Worker through
+  **ONNX Runtime Web** with automatic **WebGPU → WASM** backend fallback.
+- **Honest model story**: the preset detects COCO *“person”* — an honest proxy
+  for enemy-like figures, **not** a Valorant-specific model. The model
+  interface is documented and swappable (see below). A clearly-labeled
+  **demo mode** with synthetic targets lets you test the overlay pipeline
+  without any model.
+- **ESP overlay**: bounding boxes with color/thickness/transparency controls,
+  confidence labels, optional center dots, optional *simulated* (non-real)
+  distance readouts and optional center-to-target lines. Confirmed and
+  suspected (single-sighting) tracks are drawn differently (solid vs dashed).
+- **FOV circle + crosshair**: configurable radius, color, transparency,
+  thickness; optional highlighting of targets inside the FOV. Purely visual.
+- **Object tracking**: IoU matching + exponential smoothing keeps boxes stable
+  between frames; tracks age out gracefully.
+- **Performance monitoring**: status bar with processing FPS, inference
+  latency, backend, model status and detection counts, plus an adaptive
+  frame-sampling rate when the hardware can't keep up.
+- **Live detection log** and a full settings panel with reset-to-defaults.
+- Letterbox-aware overlay scaling: boxes stay glued to the video across
+  resolutions, aspect ratios and window resizes.
 
-This project is set up already and running on a cloud environment, as well as a convex development in the sandbox.
+## Quickstart
 
-## Environment Variables
+Requirements: [Bun](https://bun.sh) (or Node 20+ with npm).
 
-The project is set up with project specific CONVEX_DEPLOYMENT and VITE_CONVEX_URL environment variables on the client side.
-
-The convex server has a separate set of environment variables that are accessible by the convex backend.
-
-Currently, these variables include auth-specific keys: JWKS, JWT_PRIVATE_KEY, and SITE_URL.
-
-
-# Using Authentication (Important!)
-
-You must follow these conventions when using authentication.
-
-## Auth is already set up.
-
-All convex authentication functions are already set up. The auth currently uses email OTP and anonymous users, but can support more.
-
-The email OTP configuration is defined in `src/convex/auth/emailOtp.ts`. DO NOT MODIFY THIS FILE.
-
-Also, DO NOT MODIFY THESE AUTH FILES: `src/convex/auth.config.ts` and `src/convex/auth.ts`.
-
-## Using Convex Auth on the backend
-
-On the `src/convex/users.ts` file, you can use the `getCurrentUser` function to get the current user's data.
-
-## Using Convex Auth on the frontend
-
-The `/auth` page is already set up to use auth. Navigate to `/auth` for all log in / sign up sequences.
-
-You MUST use this hook to get user data. Never do this yourself without the hook:
-```typescript
-import { useAuth } from "@/hooks/use-auth";
-
-const { isLoading, isAuthenticated, user, signIn, signOut } = useAuth();
+```bash
+bun install
+bun run dev        # dev server on http://localhost:5173
 ```
 
-## Protected Routes
+Production build:
 
-The starter `/dashboard` route is protected with `RequireAuth`. Extend that page
-for the product's authenticated experience, and reuse `RequireAuth` when adding
-another protected route — do NOT hand-roll a redirect to `/auth`, since landing
-on a bare sign-in form with no explanation of what was blocked is confusing.
-
-`RequireAuth` states the block on the page the visitor asked for and sends them
-to `/auth?returnTo=<current route>` when they choose to sign in, so they come
-back to it. Pass `title` and `description` to say what the page is:
-
-```tsx
-<Route
-  path="/dashboard"
-  element={
-    <RequireAuth
-      title="Sign in to view your dashboard"
-      description="Your projects and settings live here."
-    >
-      <Dashboard />
-    </RequireAuth>
-  }
-/>
+```bash
+bun run build      # typecheck + vite build
+bun run preview    # serve the production build
 ```
 
-Pass `redirectImmediately` for a route where bouncing straight to `/auth` really
-is better.
+The app uses Convex Auth (email OTP / anonymous sign-in). The Convex
+deployment and `VITE_CONVEX_URL` are preconfigured in this environment; for a
+fresh checkout run `bun convex dev` once and set `VITE_CONVEX_URL`.
 
-## Auth Page
+## Usage
 
-The auth page is defined in `src/pages/Auth.tsx`. Send sign-in and sign-up actions
-to `/auth`.
+1. Sign in and open the **Vision Console** (`/dashboard`).
+2. Press **Start Capture** and pick a screen, window or browser tab (e.g. a
+   YouTube Valorant gameplay video in full-screen).
+3. The model downloads once (~9.4 MB fp32 or ~2.7 MB int8) and then runs
+   fully locally. Watch the status bar until the backend reports ready.
+4. Tune the FOV circle, ESP boxes, confidence threshold and processing speed
+   in the right-hand settings panel.
+5. If you just want to inspect the overlay visuals without a model, flip on
+   **Demo mode** — synthetic, clearly-labeled targets.
 
-## Authorization
+### Honest limitations
 
-You can perform authorization checks on the frontend and backend.
+- The preset model is a general COCO person detector. It detects *humans* —
+  it is not trained on Valorant character renders, so in-game enemy detection
+  quality varies. It demonstrates the pipeline truthfully; it does not fake
+  detections.
+- Screen capture requires a browser with `getDisplayMedia` (Chrome, Edge,
+  Firefox; Safari ≥ 13). WebGPU acceleration needs a WebGPU-capable browser.
 
-On the frontend, you can use the `useAuth` hook to get the current user's data and authentication state.
+## Bring your own model (swappable model interface)
 
-You should also be protecting queries, mutations, and actions at the base level, checking for authorization securely.
+The worker (`src/lib/simulator/detector.worker.ts`) expects:
 
-## Adding a redirect after auth
+- **Input**: `float32 [1, 3, 640, 640]`, NCHW, RGB, values 0–1, letterboxed
+  (letterboxing and un-mapping to source coordinates are handled for you).
+- **Output**: YOLOv10 end-to-end tensor `[1, 300, 6]` with rows
+  `(x1, y1, x2, y2, score, classId)` in letterbox pixel coordinates
+  (NMS built into the model). Only `classId 0` (“person”) is tracked.
 
-The `/auth` route in `src/main.tsx` redirects to `/dashboard` by default. If the
-product's main authenticated route is different, update `redirectAfterAuth` to
-that route. A validated same-origin `returnTo` query parameter takes priority so
-users can resume the protected page they originally requested. Never leave an
-authenticated product redirecting back to the public landing page.
+To plug in a gameplay-trained detector:
 
-## Complete authenticated products
+1. Fine-tune a YOLOv8/v10/v11 variant on annotated gameplay frames (enemy
+   characters as one class).
+2. Export end-to-end ONNX, e.g. with Ultralytics:
+   `model.export(format="onnx", nms=True)`.
+3. Host the `.onnx` file on any CORS-enabled host (Hugging Face, jsDelivr,
+   your own CDN).
+4. In the settings panel choose **Custom ONNX URL…**, paste the URL and press
+   **Load / reload**.
 
-When the requested product implies accounts, a workspace, a dashboard, or other
-signed-in functionality, the task is not complete with only a landing page and
-auth form. Build the main authenticated experience, protect its route, and verify
-that signing in reaches it.
+For raw YOLOv8/v11 output tensors (no built-in NMS), extend the `decode`
+function in the worker — it is isolated and documented.
 
-# Frontend Conventions
-
-You will be using the Vite frontend with React 19, Tailwind v4, and Shadcn UI.
-
-Generally, pages should be in the `src/pages` folder, and components should be in the `src/components` folder.
-
-Shadcn primitives are located in the `src/components/ui` folder and should be used by default.
-
-## Page routing
-
-Your page component should go under the `src/pages` folder.
-
-When adding a page, update the react router configuration in `src/main.tsx` to include the new route you just added.
-
-## Shad CN conventions
-
-Follow these conventions when using Shad CN components, which you should use by default.
-- Remember to use "cursor-pointer" to make the element clickable
-- For title text, use the "tracking-tight font-bold" class to make the text more readable
-- Always make apps MOBILE RESPONSIVE. This is important
-- AVOID NESTED CARDS. Try and not to nest cards, borders, components, etc. Nested cards add clutter and make the app look messy.
-- AVOID SHADOWS. Avoid adding any shadows to components. stick with a thin border without the shadow.
-- Avoid skeletons; instead, use the loader2 component to show a spinning loading state when loading data.
-
-
-## Landing Pages
-
-You must always create good-looking designer-level styles to your application. 
-- Make it well animated and fit a certain "theme", ie neo brutalist, retro, neumorphism, glass morphism, etc
-
-Use known images and emojis from online.
-
-If the user is logged in already, show the get started button to say "Dashboard" or "Profile" instead to take them there.
-
-## Responsiveness and formatting
-
-Make sure pages are wrapped in a container to prevent the width stretching out on wide screens. Always make sure they are centered aligned and not off-center.
-
-Always make sure that your designs are mobile responsive. Verify the formatting to ensure it has correct max and min widths as well as mobile responsiveness.
-
-- Always create sidebars for protected dashboard pages and navigate between pages
-- Always create navbars for landing pages
-- On these bars, the created logo should be clickable and redirect to the index page
-
-## Animating with Framer Motion
-
-You must add animations to components using Framer Motion. It is already installed and configured in the project.
-
-To use it, import the `motion` component from `framer-motion` and use it to wrap the component you want to animate.
-
-
-### Other Items to animate
-- Fade in and Fade Out
-- Slide in and Slide Out animations
-- Rendering animations
-- Button clicks and UI elements
-
-Animate for all components, including on landing page and app pages.
-
-## Three JS Graphics
-
-Your app comes with three js by default. You can use it to create 3D graphics for landing pages, games, etc.
-
-
-## Colors
-
-You can override colors in: `src/index.css`
-
-This uses the oklch color format for tailwind v4.
-
-Always use these color variable names.
-
-Make sure all ui components are set up to be mobile responsive and compatible with both light and dark mode.
-
-Set theme using `dark` or `light` variables at the parent className.
-
-## Styling and Theming
-
-When changing the theme, always change the underlying theme of the shad cn components app-wide under `src/components/ui` and the colors in the index.css file.
-
-Avoid hardcoding in colors unless necessary for a use case, and properly implement themes through the underlying shad cn ui components.
-
-When styling, ensure buttons and clickable items have pointer-click on them (don't by default).
-
-Always follow a set theme style and ensure it is tuned to the user's liking.
-
-## Toasts
-
-You should always use toasts to display results to the user, such as confirmations, results, errors, etc.
-
-Use the shad cn Sonner component as the toaster. For example:
+## Architecture
 
 ```
-import { toast } from "sonner"
-
-import { Button } from "@/components/ui/button"
-export function SonnerDemo() {
-  return (
-    <Button
-      variant="outline"
-      onClick={() =>
-        toast("Event has been created", {
-          description: "Sunday, December 03, 2023 at 9:00 AM",
-          action: {
-            label: "Undo",
-            onClick: () => console.log("Undo"),
-          },
-        })
-      }
-    >
-      Show Toast
-    </Button>
-  )
-}
+src/
+  lib/simulator/
+    types.ts             # shared types, model presets, default settings
+    store.ts             # tiny external stores (settings/status/capture/model/log)
+    useScreenCapture.ts  # getDisplayMedia lifecycle hook
+    detector.worker.ts   # ONNX Runtime Web worker: letterbox → infer → decode
+    tracker.ts           # IoU multi-object tracker with EMA smoothing
+    engine.ts            # DetectionEngine: adaptive sampling, demo mode, status
+  components/simulator/
+    ScreenCapture.tsx    # capture controls + status badge
+    VideoPreview.tsx     # <video> + letterbox math + overlay layering
+    EspOverlay.tsx       # ESP canvas (rAF loop, no React state in hot path)
+    FovCircle.tsx        # FOV circle + crosshair canvas
+    SettingsPanel.tsx    # all detection/appearance/model controls
+    PerformanceMonitor.tsx
+    DetectionLog.tsx
+    InfoPanels.tsx       # Model & Integration docs, Privacy & Security
+  pages/
+    Landing.tsx          # public landing page
+    Dashboard.tsx        # protected vision console
 ```
 
-Remember to import { toast } from "sonner". Usage: `toast("Event has been created.")`
+Design notes:
 
-## Dialogs
+- Overlay canvases read tracks/settings directly from stores inside a
+  `requestAnimationFrame` loop, so slider changes never re-render the frame
+  pipeline.
+- Frames are transferred to the worker as zero-copy `ImageBitmap`s and closed
+  immediately after inference.
+- Processing is throttled to the selected target FPS and automatically backs
+  off (adaptive sampling) when inference latency exceeds the frame budget.
 
-Always ensure your larger dialogs have a scroll in its content to ensure that its content fits the screen size. Make sure that the content is not cut off from the screen.
+## Privacy & security
 
-Ideally, instead of using a new page, use a Dialog instead. 
+- Capture is **always user-initiated**; there is no hidden recording.
+- Frames are processed in-tab and discarded immediately. **Nothing is ever
+  uploaded.**
+- You can stop at any time — and ending sharing via the browser UI is
+  detected and honored.
+- **No game integration of any kind**: no input simulation, no process/memory
+  access, no anti-cheat circumvention, no auto-targeting. The FOV circle is
+  an orientation aid only.
 
-# Using the Convex backend
-
-You will be implementing the convex backend. Follow your knowledge of convex and the documentation to implement the backend.
-
-## The Convex Schema
-
-You must correctly follow the convex schema implementation.
-
-The schema is defined in `src/convex/schema.ts`.
-
-Do not include the `_id` and `_creationTime` fields in your queries (it is included by default for each table).
-Do not index `_creationTime` as it is indexed for you. Never have duplicate indexes.
-
-
-## Convex Actions: Using CRUD operations
-
-When running anything that involves external connections, you must use a convex action with "use node" at the top of the file.
-
-You cannot have queries or mutations in the same file as a "use node" action file. Thus, you must use pre-built queries and mutations in other files.
-
-You can also use the pre-installed internal crud functions for the database:
-
-```ts
-// in convex/users.ts
-import { crud } from "convex-helpers/server/crud";
-import schema from "./schema.ts";
-
-export const { create, read, update, destroy } = crud(schema, "users");
-
-// in some file, in an action:
-const user = await ctx.runQuery(internal.users.read, { id: userId });
-
-await ctx.runMutation(internal.users.update, {
-  id: userId,
-  patch: {
-    status: "inactive",
-  },
-});
-```
-
-
-## Common Convex Mistakes To Avoid
-
-When using convex, make sure:
-- Document IDs are referenced as `_id` field, not `id`.
-- Document ID types are referenced as `Id<"TableName">`, not `string`.
-- Document object types are referenced as `Doc<"TableName">`.
-- Keep schemaValidation to false in the schema file.
-- You must correctly type your code so that it passes the type checker.
-- You must handle null / undefined cases of your convex queries for both frontend and backend, or else it will throw an error that your data could be null or undefined.
-- Always use the `@/folder` path, with `@/convex/folder/file.ts` syntax for importing convex files.
-- This includes importing generated files like `@/convex/_generated/server`, `@/convex/_generated/api`
-- Remember to import functions like useQuery, useMutation, useAction, etc. from `convex/react`
-- NEVER have return type validators.
+Use responsibly and only on content you are allowed to analyze.
